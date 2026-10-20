@@ -1,5 +1,5 @@
 import collections
-import urlparse
+import urllib.parse as urlparse
 
 class ClonedResourceDetails(collections.namedtuple(
         'ClonedResourceDetails',

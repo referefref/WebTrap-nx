@@ -3,8 +3,8 @@ import json
 import logging
 import logging.handlers
 import os
-import SimpleHTTPServer
-import SocketServer
+import http.server
+import socketserver
 
 DEFAULT_SERVER_PORT = 80
 
@@ -37,8 +37,8 @@ def init_rotating_file_handler(log_file_path):
     handler.setFormatter(formatter)
     return handler
 
-class AlertingRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
-    extensions_map = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map.copy()
+class AlertingRequestHandler(http.server.SimpleHTTPRequestHandler):
+    extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map.copy()
     extensions_map.update({".php": "text/html"})
 
     def send_alert_to_syslog(self, additional_data=None):
@@ -48,8 +48,8 @@ class AlertingRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             self.path, server_forensics_data)
 
         if additional_data:
-            logging_data += "\nAdditionalData:%s"
-            logging_data = logging_data % (additional_data)
+            # Appended, not %-formatted: the request data may itself contain "%"
+            logging_data += "\nAdditionalData:" + additional_data
 
         alerts_logger = logging.getLogger(__name__)
         alerts_logger.info(logging_data)
@@ -66,28 +66,33 @@ class AlertingRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         self.send_alert_to_syslog()
-        SimpleHTTPServer.SimpleHTTPRequestHandler.do_GET(self)
+        http.server.SimpleHTTPRequestHandler.do_GET(self)
 
     def do_POST(self):
         # In addition to the regular alert data, we add to it the Post data
-        post_data_string = self.rfile.read(int(self.headers['Content-Length']))
+        try:
+            content_length = max(int(self.headers.get('Content-Length', 0)), 0)
+        except ValueError:
+            content_length = 0
+        post_data_string = self.rfile.read(content_length).decode('utf-8', 'replace')
         self.send_alert_to_syslog("PostData:" + post_data_string)
-        SimpleHTTPServer.SimpleHTTPRequestHandler.do_GET(self)
+        http.server.SimpleHTTPRequestHandler.do_GET(self)
 
 
 def main(syslog_server, webroot_directory, log_file_path):
     if not os.path.isdir(webroot_directory):
-        print "Error: %s web directory does not exist" % (webroot_directory)
+        print("Error: %s web directory does not exist" % (webroot_directory))
         return
 
     alerts_logger = init_access_logs(log_file_path, syslog_hostname=syslog_server)
     alerts_logger.setLevel(logging.INFO)
 
     os.chdir(webroot_directory)
-    trap_server = SocketServer.TCPServer(
+    socketserver.TCPServer.allow_reuse_address = True
+    trap_server = socketserver.TCPServer(
         ("0.0.0.0", DEFAULT_SERVER_PORT), AlertingRequestHandler)
 
-    print "Starting listening to http requests"
+    print("Starting listening to http requests", flush=True)
     trap_server.serve_forever()
 
 if __name__ == '__main__':

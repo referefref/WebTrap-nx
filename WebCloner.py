@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 #  king_phisher/client/web_cloner.py
@@ -53,12 +53,16 @@ if sys.version_info[0] < 3:
 else:
     import urllib.parse
 
-try:
-    gi.require_version('WebKit2', '3.0')
-    from gi.repository import WebKit2
-    HAS_WEBKIT2 = True
-except ImportError:
-    HAS_WEBKIT2 = False
+HAS_WEBKIT2 = False
+# WebKit2GTK+ API 3.0 (Ubuntu 16.04) no longer exists; use 4.1 (libsoup 3) or 4.0 (libsoup 2)
+for webkit2_api_version in ('4.1', '4.0'):
+    try:
+        gi.require_version('WebKit2', webkit2_api_version)
+        from gi.repository import WebKit2
+        HAS_WEBKIT2 = True
+        break
+    except (ImportError, ValueError):
+        continue
 
 
 class WebPageCloner(object):
@@ -149,14 +153,14 @@ class WebPageCloner(object):
         charset = 'utf-8'
         response = resource.get_response()
 
-        if response and hasattr(response, 'get_http_headers'):
-            mime_type = response.get_http_headers().get('content-type')
+        if response and hasattr(response, 'get_http_headers') and response.get_http_headers():
+            mime_type = response.get_http_headers().get_one('content-type')
             if mime_type and ';' in mime_type:
                 mime_type, charset = mime_type.split(';', 1)
                 charset = charset.strip()
                 if charset.startswith('charset='):
                     charset = charset[8:].strip()
-        else:
+        if not mime_type:
             mime_type = response.get_mime_type()
 
         resource_url_str = resource.get_property('uri')
@@ -317,7 +321,7 @@ class WebPageCloner(object):
         resource.connect('finished', self.signal_resource_load_finished)
 
     def signal_resource_load_finished(self, resource):
-        resource.get_data(callback=self.cb_get_data_finish)
+        resource.get_data(None, self.cb_get_data_finish)
 
     def signal_resource_load_failed(self, resource, error):
         self.logger.warning('failed to load resource: ' + resource.get_uri())
@@ -329,17 +333,17 @@ def gtk_sync():
 
 def main(url_to_clone, ouptut_directory):
     logging.basicConfig(level=logging.ERROR)
-    print "Start cloning"
+    print("Start cloning")
     page_cloner = WebPageCloner(url_to_clone)
     page_cloner.wait()
     if page_cloner.load_failed_event != None:
-        print "Error cloning page"
+        print("Error cloning page")
         return
-    print "Start post processing"
+    print("Start post processing")
     post_processor = PostProcessor(
         page_cloner.get_first_cloned_url(), page_cloner.cloned_resources, ouptut_directory)
     post_processor.run()
-    print "Done!"
+    print("Done!")
 
 if __name__ == "__main__":
 
